@@ -3,8 +3,8 @@
 #include <vector>
 
 #include <adiak.hpp>
-#include <caliper/cali-manager.h>
 #include <caliper/cali.h>
+#include <caliper/cali-manager.h>
 
 
 __constant__ float d_filter_constant[9];
@@ -100,7 +100,7 @@ void filter_CPU(const std::vector<unsigned char> &a,
 }
 
 int main(int argc, char* argv[]) {
-  CALI_CXX_MARK_FUNCTION;
+  CALI_MARK_BEGIN("main");
 
   if (argc != 2) {
     std::cout<<"One argument required for program imgsize"<<std::endl;
@@ -155,44 +155,44 @@ int main(int argc, char* argv[]) {
   cudaMalloc((void**)&d_input_img, size * sizeof(unsigned char));
   cudaMalloc((void**)&d_output_img, size * sizeof(unsigned char));
   
-  CALI_CXX_MARK_BEGIN("cudaMemcpy_host_to_device");
+  CALI_MARK_BEGIN("cudaMemcpy_host_to_device");
   cudaEventRecord(start);
   cudaMemcpy(d_input_img, input_img.data(), size * sizeof(unsigned char), cudaMemcpyHostToDevice);
   cudaMemcpy(d_filter, three_filter.data(), three_filter.size() * sizeof(float), cudaMemcpyHostToDevice);
   cudaEventRecord(stop);
   cudaEventSynchronize(stop);
   cudaEventElapsedTime(&t_memcpy_h2d, start, stop);
-  CALI_CXX_MARK_END("cudaMemcpy_host_to_device");
+  CALI_MARK_END("cudaMemcpy_host_to_device");
 
   // Global Memory Kernel
-  CALI_CXX_MARK_BEGIN("kernel_global");
+  CALI_MARK_BEGIN("kernel_global");
   cudaEventRecord(start);
   filter_global<<<gridSize, blockSize>>>(d_input_img, d_output_img, nx, ny, d_filter);
   cudaEventRecord(stop);
   cudaEventSynchronize(stop);
   cudaEventElapsedTime(&t_global, start, stop);
-  CALI_CXX_MARK_END("kernel_global");
+  CALI_MARK_END("kernel_global");
 
   // Copy global memory result back to host (timed separately for global kernel)
-  CALI_CXX_MARK_BEGIN("cudaMemcpy_device_to_host");
+  CALI_MARK_BEGIN("cudaMemcpy_device_to_host");
   cudaEventRecord(start);
   cudaMemcpy(output_img_global.data(), d_output_img, size * sizeof(unsigned char), cudaMemcpyDeviceToHost);
   cudaEventRecord(stop);
   cudaEventSynchronize(stop);
   cudaEventElapsedTime(&t_memcpy_d2h, start, stop);
-  CALI_CXX_MARK_END("cudaMemcpy_device_to_host");
+  CALI_MARK_END("cudaMemcpy_device_to_host");
 
   // Constant Memory Kernel
   cudaMemcpyToSymbol(d_filter_constant, three_filter.data(), three_filter.size() * sizeof(float), 0, cudaMemcpyHostToDevice);
   cudaMemcpy(d_input_img, input_img.data(), size * sizeof(unsigned char), cudaMemcpyHostToDevice);
   
-  CALI_CXX_MARK_BEGIN("kernel_constant");
+  CALI_MARK_BEGIN("kernel_constant");
   cudaEventRecord(start);
   filter_constant<<<gridSize, blockSize>>>(d_input_img, d_output_img, nx, ny);
   cudaEventRecord(stop);
   cudaEventSynchronize(stop);
   cudaEventElapsedTime(&t_constant, start, stop);
-  CALI_CXX_MARK_END("kernel_constant");
+  CALI_MARK_END("kernel_constant");
 
   // Copy constant memory result back to host
   cudaMemcpy(output_img_constant.data(), d_output_img, size * sizeof(unsigned char), cudaMemcpyDeviceToHost);
@@ -271,5 +271,6 @@ int main(int argc, char* argv[]) {
   cudaEventDestroy(stop);
 
   std::cout << "End" << "\n";
+  CALI_MARK_END("main");
   return 0;
 }
