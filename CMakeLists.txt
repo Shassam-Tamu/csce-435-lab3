@@ -8,6 +8,10 @@ find_package(adiak REQUIRED)
 
 add_executable(filter filter.cu)
 
+# Enable extended lambda support for CUDA
+set_target_properties(filter PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+target_compile_options(filter PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--extended-lambda>)
+
 message(STATUS "CUDA includes : ${CUDA_INCLUDE_DIRS}")
 message(STATUS "Caliper includes : ${caliper_INCLUDE_DIR}")
 message(STATUS "Adiak includes : ${adiak_INCLUDE_DIRS}")
