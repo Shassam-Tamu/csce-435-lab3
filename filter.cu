@@ -7,7 +7,7 @@
 #include <caliper/cali-manager.h>
 
 
-__constant__ float d_filter_constant[9];
+__constant__ float d_filter_constant[25];
 
 /**
  * @brief Implemenation using global memory for image and constant memory for
@@ -20,26 +20,28 @@ __constant__ float d_filter_constant[9];
 __global__ void filter_constant(unsigned char *a, unsigned char *b, int nx, int ny) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   int idy = blockIdx.y * blockDim.y + threadIdx.y;
-  
-  auto filter_calc = [nx] __device__ (int idy, int idx){ return idy * nx + idx; };
 
   if (idx < nx && idy < ny) {
-    int xl = max(0, idx - 1);
-    int yl = max(0, idy - 1);
-    int xh = min(nx - 1, idx + 1);
-    int yh = min(ny - 1, idy + 1);
-
-    float v = d_filter_constant[0] * a[filter_calc(yl, xl)] + d_filter_constant[1] * a[filter_calc(yl, idx)] + d_filter_constant[2] * a[filter_calc(yl, xh)] +
-              d_filter_constant[3] * a[filter_calc(idy, xl)] + d_filter_constant[4] * a[filter_calc(idy, idx)] + d_filter_constant[5] * a[filter_calc(idy, xh)] +
-              d_filter_constant[6] * a[filter_calc(yh, xl)] + d_filter_constant[7] * a[filter_calc(yh, idx)] + d_filter_constant[8] * a[filter_calc(yh, xh)];
+    float v = 0.0f;
+    int filter_idx = 0;
+    
+    // 5x5 filter: iterate from -2 to +2 in both directions
+    for (int fy = -2; fy <= 2; fy++) {
+      for (int fx = -2; fx <= 2; fx++) {
+        int nx_clamped = min(max(idx + fx, 0), nx - 1);
+        int ny_clamped = min(max(idy + fy, 0), ny - 1);
+        v += d_filter_constant[filter_idx] * a[ny_clamped * nx + nx_clamped];
+        filter_idx++;
+      }
+    }
 
     uint f = (uint)(v + 0.5f);
-    b[filter_calc(idy, idx)] = (unsigned char)min(255, max(0, static_cast<int>(f)));
+    b[idy * nx + idx] = (unsigned char)min(255, max(0, static_cast<int>(f)));
   }
 }
 
 /**
- * @brief Implemenation using global memory fir filter and image
+ * @brief Implemenation using global memory for filter and image
  * @param a input image
  * @param b output image
  * @param c filter
@@ -49,21 +51,23 @@ __global__ void filter_constant(unsigned char *a, unsigned char *b, int nx, int 
 __global__ void filter_global(unsigned char *a, unsigned char *b, int nx, int ny, float *c) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   int idy = blockIdx.y * blockDim.y + threadIdx.y;
-  
-  auto filter_calc = [nx] __device__ (int idy, int idx){ return idy * nx + idx; };
 
   if (idx < nx && idy < ny) {
-    int xl = max(0, idx - 1);
-    int yl = max(0, idy - 1);
-    int xh = min(nx - 1, idx + 1);
-    int yh = min(ny - 1, idy + 1);
-
-    float v = c[0] * a[filter_calc(yl, xl)] + c[1] * a[filter_calc(yl, idx)] + c[2] * a[filter_calc(yl, xh)] +
-              c[3] * a[filter_calc(idy, xl)] + c[4] * a[filter_calc(idy, idx)] + c[5] * a[filter_calc(idy, xh)] +
-              c[6] * a[filter_calc(yh, xl)] + c[7] * a[filter_calc(yh, idx)] + c[8] * a[filter_calc(yh, xh)];
+    float v = 0.0f;
+    int filter_idx = 0;
+    
+    // 5x5 filter: iterate from -2 to +2 in both directions
+    for (int fy = -2; fy <= 2; fy++) {
+      for (int fx = -2; fx <= 2; fx++) {
+        int nx_clamped = min(max(idx + fx, 0), nx - 1);
+        int ny_clamped = min(max(idy + fy, 0), ny - 1);
+        v += c[filter_idx] * a[ny_clamped * nx + nx_clamped];
+        filter_idx++;
+      }
+    }
 
     uint f = (uint)(v + 0.5f);
-    b[filter_calc(idy, idx)] = (unsigned char)min(255, max(0, static_cast<int>(f)));
+    b[idy * nx + idx] = (unsigned char)min(255, max(0, static_cast<int>(f)));
   }
 }
 
@@ -78,23 +82,24 @@ __global__ void filter_global(unsigned char *a, unsigned char *b, int nx, int ny
 void filter_CPU(const std::vector<unsigned char> &a,
                 std::vector<unsigned char> &b, int nx, int ny,
                 const std::vector<float> &c) {
-  auto idx = [&nx](int y, int x) { return y * nx + x; };
 
   for (int y = 0; y < ny; ++y) {
     for (int x = 0; x < nx; ++x) {
-      int xl = std::max(0, x - 1);
-      int yl = std::max(0, y - 1);
-      int xh = std::min(nx - 1, x + 1);
-      int yh = std::min(ny - 1, y + 1);
-
-      float v =
-          c[0] * a[idx(yl, xl)] + c[1] * a[idx(yl, x)] + c[2] * a[idx(yl, xh)] +
-          c[3] * a[idx(y, xl)] + c[4] * a[idx(y, x)] + c[5] * a[idx(y, xh)] +
-          c[6] * a[idx(yh, xl)] + c[7] * a[idx(yh, x)] + c[8] * a[idx(yh, xh)];
+      float v = 0.0f;
+      int filter_idx = 0;
+      
+      // 5x5 filter: iterate from -2 to +2 in both directions
+      for (int fy = -2; fy <= 2; fy++) {
+        for (int fx = -2; fx <= 2; fx++) {
+          int nx_clamped = std::min(std::max(x + fx, 0), nx - 1);
+          int ny_clamped = std::min(std::max(y + fy, 0), ny - 1);
+          v += c[filter_idx] * a[ny_clamped * nx + nx_clamped];
+          filter_idx++;
+        }
+      }
 
       uint f = (uint)(v + 0.5f);
-      b[idx(y, x)] =
-          (unsigned char)std::min(255, std::max(0, static_cast<int>(f)));
+      b[y * nx + x] = (unsigned char)std::min(255, std::max(0, static_cast<int>(f)));
     }
   }
 }
@@ -112,7 +117,7 @@ int main(int argc, char* argv[]) {
 
   adiak::init(nullptr);
   adiak::value("image_size", imgsize);
-  adiak::value("filter_size", 3);
+  adiak::value("filter_size", 5);
 
   cudaEvent_t start, stop;
   cudaEventCreate(&start);
@@ -135,9 +140,14 @@ int main(int argc, char* argv[]) {
   std::vector<unsigned char> output_img_global(size);
   std::vector<unsigned char> output_img_constant(size);
   std::vector<unsigned char> output_img_ref(size);
-  std::vector<float> three_filter = {0.111f, 0.111f, 0.111f,
-                              0.111f, 0.111f, 0.111f,
-                              0.111f, 0.111f, 0.111f};
+  // 5x5 averaging filter (each value = 1/25 = 0.04)
+  std::vector<float> five_filter = {
+    0.04f, 0.04f, 0.04f, 0.04f, 0.04f,
+    0.04f, 0.04f, 0.04f, 0.04f, 0.04f,
+    0.04f, 0.04f, 0.04f, 0.04f, 0.04f,
+    0.04f, 0.04f, 0.04f, 0.04f, 0.04f,
+    0.04f, 0.04f, 0.04f, 0.04f, 0.04f
+  };
   // TODO: Initialize input image
   for (int i = 0; i < size; ++i) {
     input_img[i] = static_cast<unsigned char>(i % 256);
@@ -151,14 +161,14 @@ int main(int argc, char* argv[]) {
   dim3 gridSize((nx + blockSize.x - 1) / blockSize.x,
                 (ny + blockSize.y - 1) / blockSize.y);
   // TODO: Launch filter kernel
-  cudaMalloc((void**)&d_filter, three_filter.size() * sizeof(float));
+  cudaMalloc((void**)&d_filter, five_filter.size() * sizeof(float));
   cudaMalloc((void**)&d_input_img, size * sizeof(unsigned char));
   cudaMalloc((void**)&d_output_img, size * sizeof(unsigned char));
   
   CALI_MARK_BEGIN("cudaMemcpy_host_to_device");
   cudaEventRecord(start);
   cudaMemcpy(d_input_img, input_img.data(), size * sizeof(unsigned char), cudaMemcpyHostToDevice);
-  cudaMemcpy(d_filter, three_filter.data(), three_filter.size() * sizeof(float), cudaMemcpyHostToDevice);
+  cudaMemcpy(d_filter, five_filter.data(), five_filter.size() * sizeof(float), cudaMemcpyHostToDevice);
   cudaEventRecord(stop);
   cudaEventSynchronize(stop);
   cudaEventElapsedTime(&t_memcpy_h2d, start, stop);
@@ -183,7 +193,7 @@ int main(int argc, char* argv[]) {
   CALI_MARK_END("cudaMemcpy_device_to_host");
 
   // Constant Memory Kernel
-  cudaMemcpyToSymbol(d_filter_constant, three_filter.data(), three_filter.size() * sizeof(float), 0, cudaMemcpyHostToDevice);
+  cudaMemcpyToSymbol(d_filter_constant, five_filter.data(), five_filter.size() * sizeof(float), 0, cudaMemcpyHostToDevice);
   cudaMemcpy(d_input_img, input_img.data(), size * sizeof(unsigned char), cudaMemcpyHostToDevice);
   
   CALI_MARK_BEGIN("kernel_constant");
@@ -197,7 +207,7 @@ int main(int argc, char* argv[]) {
   // Copy constant memory result back to host
   cudaMemcpy(output_img_constant.data(), d_output_img, size * sizeof(unsigned char), cudaMemcpyDeviceToHost);
   // Compute CPU reference
-  filter_CPU(input_img, output_img_ref, nx, ny, three_filter);
+  filter_CPU(input_img, output_img_ref, nx, ny, five_filter);
   
   // Check global memory result against CPU
   bool match_global = true;
